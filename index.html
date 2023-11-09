@@ -1,1 +1,511 @@
-<center><h1>Welcome~!</h1></center>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JS Shooting Game</title>
+    <script>
+
+        // const 
+        const PLAYER_SIZE = 14;
+        const PLAYER_SPEED = 2.5;
+        const PLAYER_ENERGY = 20;
+        const PLAYER_MISSILE_SPEED = 6;
+        const PLAYER_MISSILE_SIZE = 3;
+        const ENEMY_SPEED = 2;
+        const ENEMY_SIZE = 16;
+        const ENEMY_MISSILE_SPEED = 4;
+        const ENEMY_MISSILE_SIZE = 3;
+        const UNIT_UPDATE_INTERVAL = 15;
+        const MAX_ENEMY = 20;
+        const MAX_ENEMY_MISSILE = 100;
+
+        class MovingObject {
+            constructor({index, speed}) {
+                this.x = 0;
+                this.y = 0;
+                this.size = 0;
+                this.vx = 0;
+                this.vy = 0;
+                this.speed = speed;
+                this.index = index;
+                this.active = false;
+            }
+            destroy() {
+                this.active = false;
+            }
+            get pos() {
+                return {x: this.x, y: this.y};
+            }
+            get alive() {
+                return this.active;
+            }
+            setAlive(bAlive) {
+                this.active = bAlive;
+            }
+        }
+        class Missile extends MovingObject {
+            constructor(...args) {
+                super(...args);
+                this.energy = 0;
+            }
+            launch({x, y, size, vx, vy}) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.vx = vx;
+                this.vy = vy;
+                this.active = true;
+                this.energy = 1;
+            }
+            move() {
+                if (this.active) {
+                    this.x = this.x + this.vx;
+                    this.y = this.y + this.vy;
+                    return {x: this.x, y: this.y};
+                } else {
+                    return {x: -1, y: -1};
+                }
+            }
+        }
+        class Enemy extends MovingObject {
+            constructor(...args) {
+                super(...args);
+            }
+            launch({x, y, size, speed, worldW, worldH}) {
+                // console.log(`launch x=${x}, y=${y}, worldW=${worldW}, worldH=${worldH}`)
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.speed = speed;
+                this.vx = 0;
+                this.vy = 0;
+                this.active = true;
+                this.worldW = worldW;
+                this.worldH = worldH;
+
+                this.moveCount = 0;
+                this.setNextSpeed(Math.random() * worldW, Math.random() * worldH);
+            }
+            move() {
+                if (this.active) {
+                    this.x = this.x + this.vx;
+                    this.y = this.y + this.vy;
+                    this.moveCount -= 1;
+                    if (this.moveCount < 0) {
+                        this.setNextSpeed(Math.random() * this.worldW, Math.random() * this.worldH);
+                    }
+                    return {x: this.x, y: this.y};
+                } else {
+                    return {x: -1, y: -1};
+                }
+            }
+            setNextSpeed(tx, ty) {
+                // console.log(`setNextSpeed tx=${tx}, ty=${ty}`);
+                let dx = Math.abs(this.x - tx);
+                let dy = Math.abs(this.y - ty);
+                let distance = Math.sqrt((dx * dx) + (dy * dy));
+                
+                this.vx = (dx * this.speed / distance) * (tx > this.x ? 1 : -1);
+                this.vy = (dy * this.speed / distance) * (ty > this.y ? 1 : -1);                
+                this.moveCount = Math.abs(dx / this.vx);
+                // console.log(`setNextSpeed this.vx = ${this.vx}, this.vy = ${this.vy}, this.moveCount=${this.moveCount}`)
+            }
+        }
+        const gGunSize = 28;
+        let gContext;
+        let gCanvas;
+        let gPlayer = {
+            x:0,
+            y:0,
+            size:0,
+            energy:0,
+            speed:0,
+            gunX:0,
+            gunY:0,
+            lastMouseX:0,
+            lastMouseY:0,
+            score:0,
+        }
+        let gPlayerMissiles = [];
+        let gEnemyMissiles = [];
+        let gEnemy = [];
+        let gKeyStatus = {
+            'left': false,   // false : released, true : pressed
+            'right': false,
+            'up': false,
+            'down': false,
+            'shiftKey': false,
+        }
+        let gNextEnemyLaunch = 0;
+        let gNextEnemyMissile = 0;
+        let gUpdateIntervalId;
+        let gDrawIntervalId;
+        let gCanvasWidth;
+        let gCanvasHeight;
+
+        function onload() {
+            console.log('> onload')
+            gCanvas = document.getElementById('canvas');
+            gContext = gCanvas.getContext("2d");
+
+            let { width, height } = gCanvas;
+            gCanvasWidth = width;
+            gCanvasHeight = height;
+            console.log(`width=${gCanvasWidth}, height=${gCanvasHeight}`);
+            initPlayer();
+            initEvent();
+            initEnemy();
+
+            gUpdateIntervalId = setInterval(updateUnits, UNIT_UPDATE_INTERVAL);
+            // gDrawIntervalId = setInterval(draw, 20);
+            window.requestAnimationFrame(draw);
+        }
+
+        function updateUnits() {
+            // console.log('> updateUnits')
+            // for player
+            let speed = gPlayer.speed + (gKeyStatus.shiftKey ? 3 : 0);
+            let mvX = 0; mvY = 0;
+            if (gKeyStatus.left) mvX -= speed;
+            if (gKeyStatus.right) mvX += speed;
+            if (gKeyStatus.up) mvY -= speed;
+            if (gKeyStatus.down) mvY += speed;
+
+            if (mvX != 0 && mvY != 0) {
+                mvX = mvX / Math.sqrt(2);
+                mvY = mvY / Math.sqrt(2);
+            }
+            gPlayer.x += mvX;
+            gPlayer.y += mvY;
+
+            if (gPlayer.x < 0) gPlayer.x = 0;
+            else if (gPlayer.x > gCanvasWidth) gPlayer.x = gCanvasWidth-1;
+            if (gPlayer.y < 0) gPlayer.y = 0;
+            else if (gPlayer.y > gCanvasHeight) gPlayer.y = gCanvasHeight-1;
+            //console.log(`x=${gPlayer.x}, y=${gPlayer.y}`);
+            updateGunPos();
+
+            // for player's Missiles
+            gPlayerMissiles.forEach(missile => {
+                if (missile.alive) {
+                    let {x, y} = missile.move();
+                    if (x < 0 || y < 0) missile.destroy();
+                    else if (x > gCanvasWidth || y > gCanvasHeight) missile.destroy();
+                }
+            })
+
+            // collision check
+            gPlayerMissiles.forEach(missile => {
+                if (missile.alive) {
+                    let {x:mx, y:my} = missile.pos;
+                    
+                    gEnemy.some(enemy => {
+                        if (enemy.alive) {
+                            let {x:ex, y:ey} = enemy.pos;
+                            let checkDist = missile.size + enemy.size;
+                            checkDist = checkDist * checkDist;
+                            // console.log(`checkDist = ${checkDist}`);
+                            // console.log(`dist = ` + ((ex - mx) * (ex - mx)) + ((ey - my) * (ey - my)));
+                            if (((ex - mx) * (ex - mx)) + ((ey - my) * (ey - my)) < checkDist) {
+                                // collision occurred.
+                                missile.destroy();
+                                enemy.destroy();
+                                gPlayer.score += 1;
+                                console.log(`gPlayer.score = ${gPlayer.score}`);
+                                return true;
+                            }
+                        }
+                    })
+                }
+            })
+
+            // for enemy's Missiles move
+            gEnemyMissiles.forEach(missile => {
+                if (missile.alive) {
+                    let {x, y} = missile.move();
+                    if (x < 0 || y < 0) missile.destroy();
+                    else if (x > gCanvasWidth || y > gCanvasHeight) missile.destroy();
+                }
+            })
+            // collision check
+            gEnemyMissiles.forEach(missile => {
+                if (missile.alive) {
+                    let {x:mx, y:my} = missile.pos;
+
+                    if (gPlayer.alive) {
+                        let {x:px, y:py} = gPlayer;
+                        let checkDist = missile.size + gPlayer.size;
+                        checkDist = checkDist * checkDist;
+                        // console.log(`checkDist = ${checkDist}`);
+                        // console.log(`dist = ` + ((ex - mx) * (ex - mx)) + ((ey - my) * (ey - my)));
+                        if (((px - mx) * (px - mx)) + ((py - my) * (py - my)) < checkDist) {
+                            // collision occurred.
+                            missile.destroy();
+                            gPlayer.energy -= 1;
+                            console.log(`gPlayer.energy = ${gPlayer.energy}`);
+                            if (gPlayer.energy <= 0) {
+                                gPlayer.energy = 0;
+                                // destroy
+                                console.log('destroyed. game over !!!')
+                                gPlayer.alive = false;
+                            }
+                            return true;
+                        }
+                    }
+                }
+            })
+
+            // enemy 이동
+            let aliveEnemy = 0;
+            gEnemy.forEach(enemy => {
+                if (enemy.alive) {
+                    aliveEnemy += 1;
+                    enemy.move();
+                }
+            })
+
+            // new enemy launch
+            if (gNextEnemyLaunch > 0) {
+                gNextEnemyLaunch -= 1;
+                if (gNextEnemyLaunch < 0) {
+                    gNextEnemyLaunch = 0;
+                    gEnemy.some(enemy => {
+                        if (!enemy.alive) {
+                            let params = {
+                                x: Math.random() * gCanvasWidth * 0.1 + (gCanvasWidth * 0.9),   // 우측에서 생성
+                                y: Math.random() * gCanvasHeight / 2 + (gCanvasHeight / 2),
+                                size: ENEMY_SIZE, 
+                                speed: ENEMY_SPEED,
+                                worldW: gCanvasWidth,
+                                worldH: gCanvasHeight
+                            }
+                            enemy.launch(params);
+                            // console.log('launch')
+                            return true;
+                        }
+                    })
+                }
+            }
+            if (aliveEnemy < 10 && gNextEnemyLaunch <= 0) {
+                gNextEnemyLaunch = Math.random() * 1000 * 1 / UNIT_UPDATE_INTERVAL;
+                // console.log(`aliveEnemy = ${aliveEnemy}, gNextEnemyLaunch=${gNextEnemyLaunch}`)
+            } else if (aliveEnemy < MAX_ENEMY && gNextEnemyLaunch <= 0) {
+                gNextEnemyLaunch = Math.random() * 1000 * 3 / UNIT_UPDATE_INTERVAL;
+            }
+
+            let aliveMissile = 0;
+            gEnemyMissiles.forEach(m => {
+                if (m.alive) aliveMissile += 1;
+            });
+
+            // fire enemy missile
+            if (gNextEnemyMissile > 0) {
+                gNextEnemyMissile -= 1;
+                if (gNextEnemyMissile < 0) {
+                    gNextEnemyMissile = 0;
+                    gEnemyMissiles.some(missile => {
+                        if (!missile.alive) {
+                            let randomSelectedEnemyId = parseInt(Math.random() * aliveEnemy);
+                            let enemy;
+
+                            let idx = 0;
+                            gEnemy.some(m => {
+                                if (m.alive) {
+                                    if (idx == randomSelectedEnemyId) {
+                                        enemy = m;
+                                        return true;
+                                    }
+                                    idx += 1;
+                                }
+                            });
+
+                            if (enemy) {
+                                const speed = missile.speed;
+                                let dx = Math.abs(gPlayer.x - enemy.x);
+                                let dy = Math.abs(gPlayer.y - enemy.y);
+                                let distance = Math.sqrt((dx * dx) + (dy * dy));
+                
+                                let vx = (dx * speed / distance) * (enemy.x < gPlayer.x ? 1 : -1);
+                                let vy = (dy * speed / distance) * (enemy.y < gPlayer.y ? 1 : -1);
+                
+                                missile.launch({x: enemy.x, y: enemy.y, size: ENEMY_MISSILE_SIZE, vx, vy});
+                                return true;
+                            }
+                        }
+                    })
+                }
+            }
+            if (aliveMissile < 20 && gNextEnemyMissile <= 0) {
+                gNextEnemyMissile = Math.random() * 1000 * 0.5 / UNIT_UPDATE_INTERVAL;
+                // console.log(`aliveEnemy = ${aliveEnemy}, gNextEnemyMissile=${gNextEnemyMissile}`)
+            } else if (aliveEnemy < MAX_ENEMY_MISSILE && gNextEnemyMissile <= 0) {
+                gNextEnemyMissile = Math.random() * 1000 * 1 / UNIT_UPDATE_INTERVAL;
+            }
+        }
+
+        function draw() {
+            // console.log('> draw');
+            gContext.clearRect(0, 0, gCanvas.width, gCanvas.height);
+            
+            gContext.fillStyle = 'blue';
+            gContext.strokeStyle = 'black';
+            gContext.beginPath();
+            gContext.arc(gPlayer.x, gPlayer.y, gPlayer.size, 0, 2 * Math.PI);
+            gContext.fill();
+            gContext.moveTo(gPlayer.x, gPlayer.y);
+            gContext.lineTo(gPlayer.x + gPlayer.gunX, gPlayer.y + gPlayer.gunY);
+            gContext.stroke();
+            
+            gContext.strokeStyle = 'blue';
+            gPlayerMissiles.forEach(missile => {
+                if (missile.alive) {
+                    gContext.beginPath();
+                    gContext.arc(missile.x, missile.y, missile.size, 0, 2 * Math.PI);
+                    gContext.stroke();
+                }
+            });
+            gContext.fillStyle = 'orange';
+            gContext.strokeStyle = 'black';
+            gEnemy.forEach(enemy => {
+                if (enemy.alive) {
+                    gContext.beginPath();
+                    gContext.arc(enemy.x, enemy.y, enemy.size, 0, 2 * Math.PI);
+                    gContext.stroke();
+                    gContext.fill();
+                }
+            });
+            gContext.strokeStyle = 'red';
+            gEnemyMissiles.forEach(missile => {
+                if (missile.alive) {
+                    gContext.beginPath();
+                    gContext.arc(missile.x, missile.y, missile.size, 0, 2 * Math.PI);
+                    gContext.stroke();
+                }
+            });
+
+            // draw energy area
+            if (gPlayer.alive) {
+                gContext.fillStyle = 'red';
+                gContext.fillRect(45, gCanvasHeight - 40, 100 * (gPlayer.energy / PLAYER_ENERGY), 20);
+                gContext.strokeStyle = 'yellow';
+                gContext.strokeRect(45, gCanvasHeight - 40, 100, 20);
+
+                gContext.fillStyle = 'black';
+                gContext.font = "16px arial";
+                gContext.fillText(`E`, 30, gCanvasHeight - 25);
+                gContext.fillText(`${parseInt((gPlayer.energy / PLAYER_ENERGY) * 100)}%`, 77, gCanvasHeight - 25);
+            } else {
+                gContext.fillStyle = 'red';
+                gContext.font = "20px arial";
+                gContext.fillText(`Game Over !`, 30, gCanvasHeight - 25);
+            }
+
+            gContext.fillStyle = 'black';
+            gContext.font = "16px arial";
+            gContext.fillText(`Score ${gPlayer.score}`, 160, gCanvasHeight - 25);
+
+            window.requestAnimationFrame(draw);
+        }
+
+        function eventKeydown(e) {
+            // console.log('eventKeydown=', e);
+            if (e.code == 'KeyA' || e.code == 'ArrowLeft') gKeyStatus.left = true;
+            else if (e.code == 'KeyD' || e.code == 'ArrowRight') gKeyStatus.right = true;
+            else if (e.code == 'KeyW' || e.code == 'ArrowUp') gKeyStatus.up = true;
+            else if (e.code == 'KeyS' || e.code == 'ArrowDown') gKeyStatus.down = true;
+            gKeyStatus['shiftKey'] = e.shiftKey;
+        }
+        function eventKeyup(e) {
+            // console.log('eventKeyup=', e.code);
+            if (e.code == 'KeyA' || e.code == 'ArrowLeft') gKeyStatus.left = false;
+            else if (e.code == 'KeyD' || e.code == 'ArrowRight') gKeyStatus.right = false;
+            else if (e.code == 'KeyW' || e.code == 'ArrowUp') gKeyStatus.up = false;
+            else if (e.code == 'KeyS' || e.code == 'ArrowDown') gKeyStatus.down = false;
+            gKeyStatus['shiftKey'] = e.shiftKey;
+        }
+        function eventMousedown(e) {
+            if (!gPlayer.alive) return;
+            const x = event.clientX - gCanvas.offsetLeft;
+            const y = event.clientY - gCanvas.offsetTop;
+            // console.log(`eventMousedown click x=${x}, y=${y}`);
+
+            let missile = gPlayerMissiles.find(m => {
+                if (!m.alive) return true;
+            })
+            if (missile) {
+                // console.log('eventMousedown. missile id = ', missile.index);
+
+                const speed = missile.speed;
+                let dx = Math.abs(gPlayer.x - gPlayer.lastMouseX);
+                let dy = Math.abs(gPlayer.y - gPlayer.lastMouseY);
+                let distance = Math.sqrt((dx * dx) + (dy * dy));
+
+                let vx = (dx * speed / distance) * (gPlayer.lastMouseX > gPlayer.x ? 1 : -1);
+                let vy = (dy * speed / distance) * (gPlayer.lastMouseY > gPlayer.y ? 1 : -1);
+
+                missile.launch({x: gPlayer.x, y: gPlayer.y, size: PLAYER_MISSILE_SIZE, vx, vy})
+            } else {
+                console.log('no missile');
+            }
+        }
+
+        function eventMousemove(event) {
+            const x = event.clientX - gCanvas.offsetLeft;
+            const y = event.clientY - gCanvas.offsetTop;
+
+            gPlayer.lastMouseX = x;
+            gPlayer.lastMouseY = y;
+
+            updateGunPos();
+        }
+        function updateGunPos() {
+            let dx = Math.abs(gPlayer.x - gPlayer.lastMouseX);
+            let dy = Math.abs(gPlayer.y - gPlayer.lastMouseY);
+            let distance = Math.sqrt((dx * dx) + (dy * dy));
+            
+            gPlayer.gunX = (dx * gGunSize / distance) * (gPlayer.lastMouseX > gPlayer.x ? 1 : -1);
+            gPlayer.gunY = (dy * gGunSize / distance) * (gPlayer.lastMouseY > gPlayer.y ? 1 : -1);
+            // console.log(`mouse move gPlayer.gunX=${gPlayer.gunX}, gPlayer.gunY=${gPlayer.gunY}`);
+        }
+
+        function initEnemy() {
+            console.log('> initEnemy');
+            for (let i = 0; i < MAX_ENEMY_MISSILE; i += 1) {
+                gEnemyMissiles.push(new Missile({index:i, speed: ENEMY_MISSILE_SPEED}));
+            }
+            for (let i = 0; i < MAX_ENEMY; i += 1) {
+                gEnemy.push(new Enemy({index:i, speed: ENEMY_SPEED}));
+            }
+            for (let i = 0; i < MAX_ENEMY; i += 1) {
+                let params = {
+                    x: Math.random() * gCanvasWidth / 2 + (gCanvasWidth / 2), 
+                    y: Math.random() * gCanvasHeight / 2 + (gCanvasHeight / 2),
+                    size: ENEMY_SIZE, 
+                    speed: ENEMY_SPEED,
+                    worldW: gCanvasWidth,
+                    worldH: gCanvasHeight
+                }
+                gEnemy[i].launch(params);
+            }
+        }
+        function initPlayer() {
+            console.log('> initPlayer');
+            gPlayer = {
+                x:50, y:50, size:PLAYER_SIZE, energy:PLAYER_ENERGY, speed:PLAYER_SPEED, score: 0, alive: true,
+            }
+            for (let i = 0; i < 20; i += 1) {
+                gPlayerMissiles.push(new Missile({index:i, speed: PLAYER_MISSILE_SPEED}));
+            }
+        }
+        function initEvent() {
+            console.log('> initEvent');
+            document.addEventListener('keydown', eventKeydown);
+            document.addEventListener('keyup', eventKeyup);
+            gCanvas.addEventListener('mousedown', eventMousedown);
+            gCanvas.addEventListener('mousemove', eventMousemove);
+        }
+    </script>
+</head>
+<body onload="onload()">
+    <canvas id="canvas" style="background-color:rgb(185, 185, 185);" width="1000" height="600"></canvas>
+</body>
+</html>
