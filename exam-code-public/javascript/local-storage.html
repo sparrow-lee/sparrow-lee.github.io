@@ -1,0 +1,173 @@
+<html lang="ko">
+<head>
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+    <meta charset="utf-8" />
+    <title>Local Storage exam</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
+    <script>
+        let COIN_LIST = [
+            { idx: 0, market: "KRW-BTC", name: "비트코인"},
+            { idx: 1, market: "KRW-ETH", name: "이더리움"},
+            { idx: 2, market: "KRW-DOGE", name: "도지코인"},
+            { idx: 3, market: "KRW-LSK", name: "리스크"},
+            { idx: 4, market: "KRW-XRP", name: "리플"},
+            { idx: 5, market: "KRW-SAND", name: "샌드박스"},
+            { idx: 6, market: "KRW-SOL", name: "솔라나"},
+        ];
+        let COIN_DICT = {};
+        let selectedMarket = '';
+        
+        async function onLoad() {
+            console.log('onLoad')
+            init();
+            console.log(JSON.stringify(window.localStorage));
+            // 선택 가능한 코인 리트스로 option 추가
+            let selectMarketElement = document.getElementById("selectMarket");
+            let option = document.createElement("option");
+
+            for (let i = 0; i < COIN_LIST.length; i += 1) {
+                option = document.createElement("option");
+                option.text = COIN_LIST[i].name;
+                option.value = COIN_LIST[i].market;
+                selectMarketElement.appendChild(option);
+            }
+
+            // 이전에 선택했던 코인으로 선택된 상태로 설정
+            let unit = '240';
+            let name = COIN_DICT[selectedMarket].name;
+            selectMarketElement.selectedIndex = COIN_DICT[selectedMarket].idx;
+
+            // 차트 그리기
+            let res = await getBitPrice({count: 100, market: selectedMarket, unit, name});
+            drawChart(res.trace, res.info);
+        }
+
+        function init() {
+            COIN_LIST.forEach(coin => {
+                COIN_DICT[coin.market] = coin
+            })
+            console.log(COIN_DICT);
+            selectedMarket = getData('market');
+            if (!selectedMarket) {
+                selectedMarket = 'KRW-BTC';
+            }
+            console.log('init done');
+        }
+
+        function setData(key, value) {
+            window.localStorage.setItem(key, value);
+        }
+
+        function getData(key) {
+            let value = window.localStorage.getItem(key);
+            return value;
+        }
+
+        async function selectMarketOnChange(index, value, text) {
+            setData('market', value);
+            selectedMarket = value;
+            let unit = '240';
+            let name = COIN_DICT[selectedMarket].name;
+            let res = await getBitPrice({count: 100, market: selectedMarket, unit, name});
+            drawChart(res.trace, res.info);
+        }
+
+        async function getBitPrice({count, market, unit, name}) {
+
+            let url = `https://api.upbit.com/v1/candles/minutes/${unit}?market=${market}&count=${count}`;
+            const response = await fetch(url);
+            const prices = await response.json();
+            console.log(prices);
+
+            let pricesSorted = prices.sort((a, b) => a.timestamp - b.timestamp);    // 시간순으로 정렬
+
+            let x = [];
+            let high = [];
+            let low = [];
+            let open = [];
+            let close = [];
+
+            let info = {};
+            // 차트 그릴 때, 최소, 최대값 range를 설정하기 위해.
+            lowest_price = pricesSorted[0].low_price;
+            highest_price = pricesSorted[0].high_price;
+            pricesSorted.forEach((p) => {
+                x.push(p.candle_date_time_kst);
+                high.push(p.high_price);
+                low.push(p.low_price);
+                open.push(p.opening_price);
+                close.push(p.trade_price);
+
+                lowest_price = lowest_price > p.low_price ? p.low_price : lowest_price;
+                highest_price = highest_price < p.high_price ? p.high_price : highest_price;
+            })
+
+            info = {
+                lowest_price,
+                highest_price,
+                market,
+                name
+            }
+
+            // 차트 그릴 때 필요로 하는 정보들. 캔들값을 배열로.
+            let trace = {
+                x,
+                high,
+                low,
+                open,
+                close,
+                decreasing: {line: {color: 'blue'}},
+                increasing: {line: {color: 'red'}},
+                line: {color: 'rgba(31,119,180,1)'},
+                type: 'candlestick', 
+                xaxis: 'x', 
+                yaxis: 'y'
+            }
+            console.log(info);
+            console.log('>> getBitPrice done')
+            return {trace, info};
+        }
+
+        function drawChart(trace, info) {
+            var data = [trace];
+                
+            var layout = {
+                dragmode: 'zoom', 
+                margin: {
+                    r: 10, 
+                    t: 25, 
+                    b: 40, 
+                    l: 60
+                }, 
+                showlegend: false, 
+                xaxis: {
+                    autorange: true, 
+                    domain: [0, 1], 
+                    //range: ['2017-01-03 12:00', '2017-02-15 12:00'], 
+                    range: [trace.x[0], trace.x[trace.x.length - 1]],
+                    rangeslider: {range: [trace.x[0], trace.x[trace.x.length - 1]]}, 
+                    title: info.name + ' / ' + info.market, 
+                    type: 'date',
+                    rangeslider: {
+                        visible: false
+                    }
+                }, 
+                yaxis: {
+                    autorange: true, 
+                    domain: [0, 1], 
+                    range: [info.lowest_price * 0.95, info.highest_price * 1.05], 
+                    type: 'linear'
+                }
+            };
+                
+            Plotly.newPlot('chartDiv', data, layout);
+            console.log('>> drawChart done')
+        }
+    </script>
+</head>
+<body onload="onLoad()">
+    <select name="selectMarket" id="selectMarket" onchange="selectMarketOnChange(this.selectedIndex, this.value, this.options[this.selectedIndex].text)">
+    </select>
+    <div id="chartDiv" style="width:100%;height:500px;"></div>
+</body>
+</html>
