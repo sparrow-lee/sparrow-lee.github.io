@@ -1,0 +1,304 @@
+<html lang="ko">
+<head>
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+    <meta charset="utf-8" />
+    <title>Asset calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.min.js" integrity="sha384-BBtl+eGJRgqQAUMxJ7pMwbEyER4l1g+O15P+16Ep7Q9Q+zqX6gSbd85u4mG4QzX+" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"  integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <script>
+        let gMaxAsset = 0;
+        let gAssetData = [];
+        let gAllCoinsInfo = {};
+
+        async function onLoad() {
+            console.log('> onLoad');
+            loadSetting();
+            await getAllCoinInfo();
+            await loadPriceInfo();
+            redraw();
+            calculateAsset();
+        }
+
+        function redraw() {
+            // let bodyTag = document.body;
+
+            let divAssetList = document.getElementById('divAssetList');
+            let tableHtml = '<table>\r\n';
+            for (let idx = 0; idx < gMaxAsset; idx += 1) {
+                tableHtml += '<tr><td>\r\n';
+                tableHtml += `<select name="selectAsset${idx}" id="selectAsset${idx}" class="select_coin" onchange="selectOnChange(${idx}, this.value, this.options[this.selectedIndex].text)"></select>`;
+                tableHtml += `<input name="price${idx}" id="price${idx}" aria-describedby="button-addon2" value="0"/>`
+                tableHtml += `<input name="count${idx}" id="count${idx}" aria-describedby="button-addon2" value="0"/>`
+                tableHtml += `<input name="calcValue${idx}" id="calcValue${idx}" aria-describedby="button-addon2" value="0" readonly/>`
+                tableHtml += '<br/>'
+                tableHtml += '</td></tr>\r\n';
+            }
+            tableHtml += '</table>\r\n';
+            divAssetList.innerHTML = tableHtml;
+
+            for (let idx = 0; idx < gMaxAsset; idx += 1) {
+                selectTag = document.getElementById(`selectAsset${idx}`);
+
+                option = document.createElement("option");
+                option.text = 'None';
+                option.value = 'none';
+                selectTag.appendChild(option);
+
+                option = document.createElement("option");
+                option.text = 'Manual';
+                option.value = 'manual';
+                selectTag.appendChild(option);
+
+                for (let i = 0; i < gAllCoinsInfo.KRW.length; i += 1) {
+                    option = document.createElement("option");
+                    option.text = gAllCoinsInfo.KRW[i].name;
+                    option.value = gAllCoinsInfo.KRW[i].market;
+                    selectTag.appendChild(option);
+                }
+
+                if (gAssetData[idx]) {
+                    if (gAssetData[idx].market == 'none') {
+                        selectTag.selectedIndex = 0;    
+                    } else if (gAssetData[idx].market == 'manual') {
+                        selectTag.selectedIndex = 1;    
+                    } else {
+                        selectTag.selectedIndex = gAllCoinsInfo.KRWDict[gAssetData[idx].market].index + 2
+                    }
+                    priceTag = document.getElementById(`price${idx}`);
+                    priceTag.value = gAssetData[idx].price || 0;
+
+                    countTag = document.getElementById(`count${idx}`);
+                    countTag.value = gAssetData[idx].count || 0;
+                }
+            }
+        }
+
+        function updateAsset() {
+            for (let idx = 0; idx < gMaxAsset; idx += 1) {
+                let asset = gAssetData[idx];
+                
+                priceTag = document.getElementById(`price${idx}`);
+                countTag = document.getElementById(`count${idx}`);
+                calcValueTag = document.getElementById(`calcValue${idx}`);
+
+                if (asset.market == 'none') {
+                    priceTag.value = 0;
+                    countTag.value = 0;
+                } else {
+                    try {
+                        asset.price = parseFloat(priceTag.value);
+                    } catch (e) {
+                        asset.price = 0;
+                    }
+                    try {
+                        asset.count = parseFloat(countTag.value);
+                    } catch (e) {
+                        asset.count = 0;
+                    }
+                }
+            }
+            gAssetData = gAssetData.filter((asset) => asset.market != 'none');
+            setData('asset.AssetData', JSON.stringify(gAssetData));
+            gMaxAsset = gAssetData.length;
+            setData('asset.MaxAsset', gMaxAsset);
+            calculateAsset();
+        }
+
+        function calculateAsset() {
+            let textTotalValue = 0;
+            let textTotalValueTag = document.getElementById(`textTotalValue`);
+            for (let idx = 0; idx < gMaxAsset; idx += 1) {
+                let asset = gAssetData[idx];
+                
+                priceTag = document.getElementById(`price${idx}`);
+                countTag = document.getElementById(`count${idx}`);
+                calcValueTag = document.getElementById(`calcValue${idx}`);
+
+                if (asset.market == 'none') {
+                    priceTag.value = 0;
+                    countTag.value = 0;
+                    calcValueTag.value = 0;
+                } else {
+                    priceTag.value = asset.price || 0;
+                    countTag.value = asset.count || 0;
+                    let calculatedValue = asset.price * asset.count;
+                    calcValueTag.value = calculatedValue;
+
+                    textTotalValue += calculatedValue;
+                }
+            }
+            textTotalValueTag.value = textTotalValue;
+            console.log(`textTotalValue=${textTotalValue}`);
+        }
+
+        // 코인 셀렉트에서 변경 시
+        async function selectOnChange(selId, value, text) {
+            console.log(`> selectOnChange${selId} : ${value}, ${text}`);
+
+            let asset = gAssetData[selId];
+            asset.name = text;
+            asset.market = value;
+            if (value != 'manual' && value != 'none') {
+                let res = await getBitPrice({count: 1, market: value, unit: 60, name: text});
+                asset.price = res.current_price;
+            } else {
+                asset.price = 0;
+            }
+
+            setData('asset.AssetData', JSON.stringify(gAssetData));
+
+            redraw();
+        }
+
+        async function loadPriceInfo() {
+            console.log('> loadPriceInfo()');
+            for (let i=0; i<gAssetData.length; i += 1) {
+                let asset = gAssetData[i];
+                if (asset.market != 'manual' && asset.market != 'none') {
+                    let res = await getBitPrice({count: 1, market: asset.market, unit: 60, name: asset.name});
+                    asset.price = res.current_price;
+                } else {
+                    asset.price = 0;
+                }
+            }
+            console.log(gAssetData);
+        }
+
+        function loadSetting() {
+            console.log('> loadSetting()');
+            try {
+                gMaxAsset = parseInt(getData('asset.MaxAsset', 0));
+            } catch (e) {
+                gMaxAsset = 0;
+            }
+            console.log(`gMaxAsset=${gMaxAsset}`);
+            let tempData = getData('asset.AssetData', '[]');
+            try {
+                gAssetData = JSON.parse(tempData);
+            } catch (e) {
+                console.log(e.toString());
+                gAssetData = [];
+            }
+            console.log(`tempData`);
+        }
+
+
+        // 특정 코인 캔들 정보 리스트 가져오기
+        async function getBitPrice({count, market, unit, name}) {
+            let url = `https://api.upbit.com/v1/candles/minutes/${unit}?market=${market}&count=${count}`;
+            const response = await fetch(url);
+            const prices = await response.json();
+            console.log("getBitPrice done");
+
+            let pricesSorted = prices.sort((a, b) => a.timestamp - b.timestamp)
+            let x = [];
+            let high = [];
+            let low = [];
+            let open = [];
+            let close = [];
+
+            let info = {};
+            lowest_price = pricesSorted[0].low_price;;
+            highest_price = pricesSorted[0].high_price;
+            return {current_price : pricesSorted[pricesSorted.length-1].trade_price};
+        }
+
+        // 전체 코인 메타 정보 가져오기
+        async function getAllCoinInfo() {
+            console.log('> getAllCoinInfo()');
+            let url = `https://api.upbit.com/v1/market/all`;
+            const response = await fetch(url);
+            const coinInfos = await response.json();
+
+            // 코인 검색시 JSON 형태가 쉬울때가 많아서 리스트와 함께 두가지 형태로 저장한다
+            gAllCoinsInfo = {
+                "KRW" : [],
+                "KRWDict" : {},
+            };
+
+            let KRW = [], head = [];
+            let KRWDict = {};
+
+            coinInfos.forEach(info => {
+                let ids = info.market.split("-");
+
+                if (ids[0] == 'KRW') {
+                    let name = info.korean_name;
+                    let en_name = info.english_name;
+
+                    // 비트코인과 이더리움은 정렬에서 제외시키고 맨앞에 둔다.
+                    if (ids[1] == 'BTC' || ids[1] == 'ETH') {
+                        head.push({
+                            market : info.market, name, en_name,
+                        })
+                    } else {
+                        KRW.push({
+                            market : info.market, name, en_name,
+                        })
+                    }
+                    
+                }
+            })
+            KRW = KRW.sort((a, b) => a.name > b.name ? 1 : -1);
+
+            gAllCoinsInfo.KRW = head.concat(KRW);
+
+            for(let i=0; i<gAllCoinsInfo.KRW.length; i += 1) {
+                let coin = gAllCoinsInfo.KRW[i];
+                gAllCoinsInfo.KRWDict[coin.market] = {
+                    index: i,
+                    market: coin.market,
+                    name: coin.name,
+                    en_name: coin.en_name,
+                }
+            }
+            console.log(gAllCoinsInfo)
+        }
+
+        function addAsset() {
+            gMaxAsset += 1;
+            gAssetData.push({
+                name : 'none',
+                market : 'none',
+                price : 0.0,
+                count : 0.0,
+            });
+            setData('asset.MaxAsset', gMaxAsset);
+            setData('asset.AssetData', JSON.stringify(gAssetData));
+            redraw();
+        }
+
+        function setData(key, value) {
+            window.localStorage.setItem('sparrow.' + key, value);
+        }
+
+        function getData(key, defaultValue) {
+            try {
+                let value = window.localStorage.getItem('sparrow.' + key);
+                if (value == undefined) {
+                    return defaultValue;
+                }
+                return value;
+            } catch (e) {
+                console.log(e.toString());
+                return defaultValue;
+            }
+        }
+        function tempInit() {
+            setData('asset.MaxAsset', 0);
+            setData('asset.AssetData', JSON.stringify([]));
+        }
+    </script>
+</head>
+<body onload="onLoad()">
+    <button id="buttonAddAsset" value=" Add " onclick="addAsset()"> Add </button>
+    <button id="buttonCalculateAsset" value=" Add " onclick="updateAsset()"> Calculate </button>
+    <button value=" Reload " onClick="window.location.reload()"> :::::::::: Reload :::::::::: </button>
+    <br/>
+    <!--button id="tempInit" value=" Add " onclick="tempInit()">TEMP INIT</button-->
+    <br/>
+    Total : <input id="textTotalValue" name="textTotalValue" type="number" aria-describedby="button-addon2" data-number-to-fixed="2" data-number-stepfactor="100" value="0" readonly/>
+    <div id="divAssetList" style="width:100%;float: both"></div>
+</body>
+</html>
